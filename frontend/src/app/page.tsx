@@ -3,7 +3,12 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/authStore';
-import Loading from '@/components/ui/Loading';
+import Nav from './_landing/Nav';
+import Hero from './_landing/Hero';
+import Features from './_landing/Features';
+import HowItWorks from './_landing/HowItWorks';
+import Pricing from './_landing/Pricing';
+import Footer from './_landing/Footer';
 
 export default function HomePage() {
   const router = useRouter();
@@ -15,17 +20,19 @@ export default function HomePage() {
 
   useEffect(() => {
     if (isAuthenticated && user) {
-      // Redirect based on role
-      if (user.role === 'owner') {
-        router.push('/owner/dashboard');
-      } else if (user.role === 'cashier') {
-        router.push('/cashier/pos');
-      }
-    } else if (isAuthenticated === false) {
-      // Not authenticated
-      router.push('/auth/login');
+      if (user.role === 'Owner') router.replace('/owner/dashboard');
+      else if (user.role === 'Cashier') router.replace('/cashier/pos');
     }
   }, [isAuthenticated, user, router]);
 
-  return <Loading fullScreen text="Loading..." />;
+  return (
+    <main className="min-h-screen bg-white">
+      <Nav />
+      <Hero />
+      <Features />
+      <HowItWorks />
+      <Pricing />
+      <Footer />
+    </main>
+  );
 }

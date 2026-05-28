@@ -5,6 +5,7 @@ import { TrendingUp, Package, AlertCircle, BarChart3 } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Loading from '@/components/ui/Loading';
 import Badge from '@/components/ui/Badge';
+import PageHeader from '@/components/ui/PageHeader';
 import api from '@/lib/api';
 import { formatCurrency, formatNumber, formatDate } from '@/utils/helpers';
 import toast from 'react-hot-toast';
@@ -51,27 +52,20 @@ export default function ReportsPage() {
   const salesData = reportData.daily_sales;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <div className="flex items-center gap-3 mb-2">
-          <BarChart3 className="w-8 h-8 text-blue-600" />
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-blue-900 bg-clip-text text-transparent">
-            Reports & Analytics
-          </h1>
-        </div>
-        <p className="text-gray-500">Insights into your business performance</p>
-      </div>
+    <>
+      <PageHeader
+        title="Reports"
+        description="Insights into your tenant's performance."
+      />
 
-      {/* Modern Tabs */}
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit">
+      <div className="mb-6 flex gap-1 rounded-md border border-gray-200 bg-white p-0.5 w-fit">
         {['overview', 'inventory', 'sales', 'products'].map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 capitalize font-medium transition-all duration-200 rounded ${
+            className={`rounded px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
               activeTab === tab
-                ? 'bg-white text-blue-600 shadow-sm'
+                ? 'bg-gray-900 text-white'
                 : 'text-gray-600 hover:text-gray-900'
             }`}
           >
@@ -91,7 +85,7 @@ export default function ReportsPage() {
                 <div className="relative">
                   <p className="text-sm font-medium text-gray-600">Today's Revenue</p>
                   <p className="text-3xl font-bold text-gray-900 mt-2">
-                    {formatCurrency(salesData?.today?.revenue || 0)}
+                    {formatCurrency(salesData?.today?.total_revenue || 0)}
                   </p>
                 </div>
               </div>
@@ -244,18 +238,18 @@ export default function ReportsPage() {
               <div className="space-y-4">
                 <div className="flex justify-between items-center p-3 bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg border border-blue-200">
                   <span className="font-medium text-gray-700">Total Sales</span>
-                  <span className="text-lg font-bold text-blue-900">{salesData?.today?.sales || 0}</span>
+                  <span className="text-lg font-bold text-blue-900">{salesData?.today?.total_transactions || 0}</span>
                 </div>
                 <div className="flex justify-between items-center p-3 bg-gradient-to-r from-emerald-50 to-emerald-100 rounded-lg border border-emerald-200">
                   <span className="font-medium text-gray-700">Revenue</span>
                   <span className="text-lg font-bold text-emerald-900">
-                    {formatCurrency(salesData?.today?.revenue || 0)}
+                    {formatCurrency(salesData?.today?.total_revenue || 0)}
                   </span>
                 </div>
                 <div className="flex justify-between items-center p-3 bg-gradient-to-r from-purple-50 to-purple-100 rounded-lg border border-purple-200">
                   <span className="font-medium text-gray-700">Average Sale</span>
                   <span className="text-lg font-bold text-purple-900">
-                    {formatCurrency(salesData?.today?.average_sale || 0)}
+                    {formatCurrency(salesData?.today?.average_transaction || 0)}
                   </span>
                 </div>
               </div>
@@ -269,19 +263,19 @@ export default function ReportsPage() {
                 <div className="flex justify-between items-center p-3 bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg border border-blue-200">
                   <span className="font-medium text-gray-700">Total Sales</span>
                   <span className="text-lg font-bold text-blue-900">
-                    {salesData?.this_month?.sales || 0}
+                    {salesData?.this_month?.total_transactions || 0}
                   </span>
                 </div>
                 <div className="flex justify-between items-center p-3 bg-gradient-to-r from-emerald-50 to-emerald-100 rounded-lg border border-emerald-200">
                   <span className="font-medium text-gray-700">Revenue</span>
                   <span className="text-lg font-bold text-emerald-900">
-                    {formatCurrency(salesData?.this_month?.revenue || 0)}
+                    {formatCurrency(salesData?.this_month?.total_revenue || 0)}
                   </span>
                 </div>
                 <div className="flex justify-between items-center p-3 bg-gradient-to-r from-purple-50 to-purple-100 rounded-lg border border-purple-200">
                   <span className="font-medium text-gray-700">Average Sale</span>
                   <span className="text-lg font-bold text-purple-900">
-                    {formatCurrency(salesData?.this_month?.average_sale || 0)}
+                    {formatCurrency(salesData?.this_month?.average_transaction || 0)}
                   </span>
                 </div>
               </div>
@@ -292,30 +286,30 @@ export default function ReportsPage() {
             <div className="mb-4">
               <h2 className="text-lg font-semibold text-gray-900">Recent Transactions</h2>
             </div>
-            {salesData?.recent_sales && salesData.recent_sales.length > 0 ? (
+            {salesData?.recent_transactions && salesData.recent_transactions.length > 0 ? (
               <div className="space-y-3">
-                {salesData.recent_sales.map((sale: any) => (
+                {salesData.recent_transactions.map((t: any) => (
                   <div
-                    key={sale.id}
+                    key={t.transaction_id}
                     className="flex items-center justify-between p-4 bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg hover:shadow-md transition-all border border-gray-200"
                   >
                     <div>
-                      <p className="font-semibold text-gray-900">Sale #{sale.id}</p>
+                      <p className="font-semibold text-gray-900">Transaction #{t.transaction_id}</p>
                       <p className="text-sm text-gray-600">
-                        {formatDate(sale.created_at, 'long')}
+                        {formatDate(t.created_at, 'long')}
                       </p>
                     </div>
                     <div className="text-right">
                       <p className="font-bold text-gray-900">
-                        {formatCurrency(sale.total_amount)}
+                        {formatCurrency(t.total_amount)}
                       </p>
-                      <Badge variant="success">{sale.status}</Badge>
+                      <Badge variant="success">{t.cashier_name || '—'}</Badge>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-center text-gray-500 py-8">No recent sales</p>
+              <p className="text-center text-gray-500 py-8">No recent transactions</p>
             )}
           </Card>
         </div>
@@ -355,6 +349,6 @@ export default function ReportsPage() {
           </Card>
         </div>
       )}
-    </div>
+    </>
   );
 }

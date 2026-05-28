@@ -11,13 +11,15 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Create PostgreSQL connection pool
+// Create PostgreSQL connection pool. Neon's serverless Postgres can take
+// 5–15s to wake from a suspended state, so we use a generous connection
+// timeout rather than fail-fast.
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : { rejectUnauthorized: false },
   max: 20,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 30000,
 });
 
 // Test connection

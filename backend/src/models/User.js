@@ -2,137 +2,97 @@ import { query } from '../config/database.js';
 import { NotFoundError, ConflictError } from '../utils/errors.js';
 
 class UserModel {
-  // Create new user
-  async create({ email, password_hash, full_name, role, store_id = null }) {
+  async create({ tenant_id, email, password_hash, name, role = 'Cashier' }) {
     const result = await query(
-      `INSERT INTO users (email, password_hash, full_name, role, store_id)
+      `INSERT INTO users (tenant_id, email, password_hash, name, role)
        VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, email, full_name, role, store_id, is_active, created_at`,
-      [email, password_hash, full_name, role, store_id]
+       RETURNING user_id, tenant_id, email, name, role, is_active, created_at`,
+      [tenant_id, email, password_hash, name, role]
     );
     return result.rows[0];
   }
 
-  // Find user by email
   async findByEmail(email) {
-    const result = await query(
-      `SELECT * FROM users WHERE email = $1`,
-      [email]
-    );
+    const result = await query(`SELECT * FROM users WHERE email = $1`, [email]);
     return result.rows[0] || null;
   }
 
-  // Find user by ID
-  async findById(id) {
+  async findById(user_id) {
     const result = await query(
-      `SELECT id, email, full_name, role, store_id, is_active, created_at, updated_at
-       FROM users WHERE id = $1`,
-      [id]
+      `SELECT user_id, tenant_id, email, name, role, is_active, created_at, updated_at
+         FROM users WHERE user_id = $1`,
+      [user_id]
     );
-    
-    if (result.rows.length === 0) {
-      throw new NotFoundError('User not found');
-    }
-    
+    if (result.rows.length === 0) throw new NotFoundError('User not found');
     return result.rows[0];
   }
 
-  // Find user by ID (with password hash for authentication)
-  async findByIdWithPassword(id) {
-    const result = await query(
-      `SELECT * FROM users WHERE id = $1`,
-      [id]
-    );
+  async findByIdWithPassword(user_id) {
+    const result = await query(`SELECT * FROM users WHERE user_id = $1`, [user_id]);
     return result.rows[0] || null;
   }
 
-  // Update user
-  async update(id, updates) {
-    const allowedUpdates = ['full_name', 'email', 'store_id', 'is_active'];
-    const updateFields = [];
+  async update(user_id, updates) {
+    const allowed = ['name', 'email', 'is_active', 'role'];
+    const fields = [];
     const values = [];
-    let paramIndex = 1;
-
+    let i = 1;
     for (const [key, value] of Object.entries(updates)) {
-      if (allowedUpdates.includes(key)) {
-        updateFields.push(`${key} = $${paramIndex}`);
+      if (allowed.includes(key) && value !== undefined) {
+        fields.push(`${key} = $${i++}`);
         values.push(value);
-        paramIndex++;
       }
     }
-
-    if (updateFields.length === 0) {
-      throw new Error('No valid fields to update');
-    }
-
-    values.push(id);
-
+    if (fields.length === 0) throw new Error('No valid fields to update');
+    values.push(user_id);
     const result = await query(
-      `UPDATE users 
-       SET ${updateFields.join(', ')}
-       WHERE id = $${paramIndex}
-       RETURNING id, email, full_name, role, store_id, is_active, updated_at`,
+      `UPDATE users SET ${fields.join(', ')}
+        WHERE user_id = $${i}
+        RETURNING user_id, tenant_id, email, name, role, is_active, updated_at`,
       values
     );
-
-    if (result.rows.length === 0) {
-      throw new NotFoundError('User not found');
-    }
-
+    if (result.rows.length === 0) throw new NotFoundError('User not found');
     return result.rows[0];
   }
 
-  // Update password
-  async updatePassword(id, password_hash) {
+  async updatePassword(user_id, password_hash) {
     const result = await query(
-      `UPDATE users SET password_hash = $1 WHERE id = $2
-       RETURNING id`,
-      [password_hash, id]
+      `UPDATE users SET password_hash = $1 WHERE user_id = $2 RETURNING user_id`,
+      [password_hash, user_id]
     );
-
-    if (result.rows.length === 0) {
-      throw new NotFoundError('User not found');
-    }
-
+    if (result.rows.length === 0) throw new NotFoundError('User not found');
     return result.rows[0];
   }
 
-  // Delete user
-  async delete(id) {
+  // Soft-delete via is_active. Hard-delete is impossible for cashiers
+  // who have ever recorded a transaction (transactions.user_id RESTRICT).
+  async deactivate(user_id) {
     const result = await query(
-      `DELETE FROM users WHERE id = $1 RETURNING id`,
-      [id]
+      `UPDATE users SET is_active = false WHERE user_id = $1 RETURNING user_id`,
+      [user_id]
     );
-
-    if (result.rows.length === 0) {
-      throw new NotFoundError('User not found');
-    }
-
+    if (result.rows.length === 0) throw new NotFoundError('User not found');
     return result.rows[0];
   }
 
-  // Get all users for a store
-  async findByStore(storeId) {
+  async findByTenant(tenant_id) {
     const result = await query(
-      `SELECT id, email, full_name, role, is_active, created_at
-       FROM users 
-       WHERE store_id = $1
-       ORDER BY created_at DESC`,
-      [storeId]
+      `SELECT user_id, email, name, role, is_active, created_at
+         FROM users
+        WHERE tenant_id = $1
+        ORDER BY created_at DESC`,
+      [tenant_id]
     );
     return result.rows;
   }
 
-  // Check if email exists
   async emailExists(email, excludeUserId = null) {
     const params = [email];
-    let sql = 'SELECT id FROM users WHERE email = $1';
-    
+    let sql = 'SELECT user_id FROM users WHERE email = $1';
     if (excludeUserId) {
-      sql += ' AND id != $2';
+      sql += ' AND user_id != $2';
       params.push(excludeUserId);
     }
-    
     const result = await query(sql, params);
     return result.rows.length > 0;
   }

@@ -2,16 +2,15 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import Cookies from 'js-cookie';
 import api, { handleApiError } from '@/lib/api';
-import { User, Store, LoginCredentials, RegisterData, AuthResponse } from '@/types';
+import { User, Tenant, LoginCredentials, RegisterData, AuthResponse } from '@/types';
 
 interface AuthState {
   user: User | null;
-  store: Store | null;
+  tenant: Tenant | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
-  
-  // Actions
+
   login: (credentials: LoginCredentials) => Promise<void>;
   register: (data: RegisterData) => Promise<void>;
   logout: () => void;
@@ -23,99 +22,76 @@ export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
       user: null,
-      store: null,
+      tenant: null,
       isAuthenticated: false,
       isLoading: false,
       error: null,
 
       login: async (credentials: LoginCredentials) => {
         set({ isLoading: true, error: null });
-        
         try {
           const response = await api.post<AuthResponse>('/auth/login', credentials);
-          const { user, store, accessToken, refreshToken } = response.data;
+          const { user, tenant, accessToken, refreshToken } = response.data;
 
-          // Save tokens
           Cookies.set('accessToken', accessToken, { expires: 7 });
           Cookies.set('refreshToken', refreshToken, { expires: 30 });
 
           set({
             user,
-            store: store || null,
+            tenant: tenant || null,
             isAuthenticated: true,
             isLoading: false,
             error: null,
           });
         } catch (error) {
           const errorMessage = handleApiError(error);
-          set({ 
-            isLoading: false, 
-            error: errorMessage,
-            isAuthenticated: false,
-          });
+          set({ isLoading: false, error: errorMessage, isAuthenticated: false });
           throw new Error(errorMessage);
         }
       },
 
       register: async (data: RegisterData) => {
         set({ isLoading: true, error: null });
-        
         try {
           const response = await api.post<AuthResponse>('/auth/register', data);
-          const { user, store, accessToken, refreshToken } = response.data;
+          const { user, tenant, accessToken, refreshToken } = response.data;
 
-          // Save tokens
           Cookies.set('accessToken', accessToken, { expires: 7 });
           Cookies.set('refreshToken', refreshToken, { expires: 30 });
 
           set({
             user,
-            store: store || null,
+            tenant: tenant || null,
             isAuthenticated: true,
             isLoading: false,
             error: null,
           });
         } catch (error) {
           const errorMessage = handleApiError(error);
-          set({ 
-            isLoading: false, 
-            error: errorMessage,
-            isAuthenticated: false,
-          });
+          set({ isLoading: false, error: errorMessage, isAuthenticated: false });
           throw new Error(errorMessage);
         }
       },
 
       logout: () => {
-        // Remove tokens
         Cookies.remove('accessToken');
         Cookies.remove('refreshToken');
-
-        set({
-          user: null,
-          store: null,
-          isAuthenticated: false,
-          error: null,
-        });
+        set({ user: null, tenant: null, isAuthenticated: false, error: null });
       },
 
       fetchCurrentUser: async () => {
         const token = Cookies.get('accessToken');
-        
         if (!token) {
-          set({ isAuthenticated: false, user: null, store: null });
+          set({ isAuthenticated: false, user: null, tenant: null });
           return;
         }
-
         set({ isLoading: true });
-
         try {
-          const response = await api.get<{ user: User; store: Store | null }>('/auth/me');
-          const { user, store } = response.data;
-
+          const response = await api.get<{ user: User; tenant: Tenant }>('/auth/me');
+          const { user, tenant } = response.data;
           set({
             user,
-            store,
+            tenant,
             isAuthenticated: true,
             isLoading: false,
             error: null,
@@ -123,13 +99,11 @@ export const useAuthStore = create<AuthState>()(
         } catch (error) {
           set({
             user: null,
-            store: null,
+            tenant: null,
             isAuthenticated: false,
             isLoading: false,
             error: handleApiError(error),
           });
-          
-          // Remove invalid tokens
           Cookies.remove('accessToken');
           Cookies.remove('refreshToken');
         }
@@ -141,7 +115,7 @@ export const useAuthStore = create<AuthState>()(
       name: 'auth-storage',
       partialize: (state) => ({
         user: state.user,
-        store: state.store,
+        tenant: state.tenant,
         isAuthenticated: state.isAuthenticated,
       }),
     }

@@ -6,28 +6,18 @@ import { requireOwner } from '../middleware/roleCheck.js';
 
 const router = express.Router();
 
-// All routes require authentication and tenant isolation
 router.use(authenticate, tenantIsolation);
 
-// Get all products (available to all authenticated users)
-router.get('/', productController.getAllProducts);
-
-// Get products with inventory
-router.get('/with-inventory', productController.getProductsWithInventory);
-
-// Get product categories
+// Specific routes BEFORE /:id.
 router.get('/categories', productController.getCategories);
+router.get('/low-stock', productController.getLowStock);
 
-// Get single product
-router.get('/:id', productController.getProduct);
-
-// Create product (owner only)
+router.get('/', productController.getAllProducts);
 router.post('/', requireOwner, productController.createProduct);
 
-// Update product (owner only)
+router.get('/:id', productController.getProduct);
 router.put('/:id', requireOwner, productController.updateProduct);
-
-// Delete product (owner only)
+router.patch('/:id/stock', requireOwner, productController.adjustStock);
 router.delete('/:id', requireOwner, productController.deleteProduct);
 
 export default router;

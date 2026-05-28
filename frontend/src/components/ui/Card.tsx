@@ -8,26 +8,24 @@ interface CardProps {
 }
 
 export default function Card({ children, className = '', hover = false, onClick }: CardProps) {
-  const baseClasses = 'bg-white rounded-xl shadow-sm border border-gray-200 p-6 transition-all duration-200';
-  const hoverClasses = hover ? 'hover:shadow-md hover:border-gray-300' : '';
-  const clickableClasses = onClick ? 'cursor-pointer' : '';
+  const base = 'bg-white rounded-lg border border-gray-200 p-6 transition-shadow';
+  const hoverStyle = hover ? 'hover:shadow-sm hover:border-gray-300' : '';
+  const clickable = onClick ? 'cursor-pointer hover:shadow-sm' : '';
 
-  const divProps: React.HTMLAttributes<HTMLDivElement> = {
-    className: `${baseClasses} ${hoverClasses} ${clickableClasses} ${className}`.trim(),
+  const props: React.HTMLAttributes<HTMLDivElement> = {
+    className: `${base} ${hoverStyle} ${clickable} ${className}`.trim(),
     onClick,
     tabIndex: onClick ? 0 : undefined,
   };
 
   if (onClick) {
-    (divProps as any).role = 'button';
-    divProps.onKeyDown = (e) => {
-      if ((e.key === 'Enter' || e.key === ' ') && onClick) {
-        onClick();
-      }
+    (props as any).role = 'button';
+    props.onKeyDown = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') onClick();
     };
   }
 
-  return <div {...divProps}>{children}</div>;
+  return <div {...props}>{children}</div>;
 }
 
 interface CardHeaderProps {
@@ -36,11 +34,7 @@ interface CardHeaderProps {
 }
 
 export function CardHeader({ children, className = '' }: CardHeaderProps) {
-  return (
-    <div className={`mb-4 ${className}`.trim()}>
-      {children}
-    </div>
-  );
+  return <div className={`mb-4 ${className}`.trim()}>{children}</div>;
 }
 
 interface CardTitleProps {
@@ -50,9 +44,7 @@ interface CardTitleProps {
 
 export function CardTitle({ children, className = '' }: CardTitleProps) {
   return (
-    <h3 className={`text-lg font-semibold text-gray-900 ${className}`.trim()}>
-      {children}
-    </h3>
+    <h3 className={`text-base font-semibold text-gray-900 ${className}`.trim()}>{children}</h3>
   );
 }
 
@@ -62,9 +54,5 @@ interface CardContentProps {
 }
 
 export function CardContent({ children, className }: CardContentProps) {
-  return (
-    <div className={className || ''}>
-      {children}
-    </div>
-  );
+  return <div className={className || ''}>{children}</div>;
 }

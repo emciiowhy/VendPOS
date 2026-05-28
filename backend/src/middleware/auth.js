@@ -2,24 +2,19 @@ import authService from '../services/authService.js';
 import { UnauthorizedError } from '../utils/errors.js';
 import logger from '../utils/logger.js';
 
-// Authenticate user with JWT
 export const authenticate = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-    
-    if (!authHeader) {
-      throw new UnauthorizedError('No token provided');
-    }
+    if (!authHeader) throw new UnauthorizedError('No token provided');
 
     const token = authService.extractTokenFromHeader(authHeader);
     const decoded = authService.verifyAccessToken(token);
 
-    // Attach user info to request
     req.user = {
-      id: decoded.id,
+      user_id: decoded.user_id,
       email: decoded.email,
       role: decoded.role,
-      store_id: decoded.store_id
+      tenant_id: decoded.tenant_id,
     };
 
     logger.debug(`User authenticated: ${req.user.email} (${req.user.role})`);
@@ -29,26 +24,21 @@ export const authenticate = async (req, res, next) => {
   }
 };
 
-// Optional authentication (doesn't fail if no token)
 export const optionalAuth = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-    
     if (authHeader) {
       const token = authService.extractTokenFromHeader(authHeader);
       const decoded = authService.verifyAccessToken(token);
-      
       req.user = {
-        id: decoded.id,
+        user_id: decoded.user_id,
         email: decoded.email,
         role: decoded.role,
-        store_id: decoded.store_id
+        tenant_id: decoded.tenant_id,
       };
     }
-    
     next();
   } catch (error) {
-    // Continue without authentication
     next();
   }
 };

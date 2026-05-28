@@ -7,21 +7,20 @@ import { formatCurrency, formatDate } from '@/utils/helpers';
 
 interface ReceiptProps {
   sale: {
-    id: number;
+    transaction_id: number;
     total_amount: number;
-    payment_method: string;
     created_at: string;
     cashier_name?: string;
     items?: Array<{
-      product_name: string;
+      product_name?: string;
       quantity: number;
       unit_price: number;
     }>;
   };
   store: {
-    store_name: string;
-    address?: string;
-    phone?: string;
+    business_name: string;
+    address?: string | null;
+    phone?: string | null;
   };
   onClose?: () => void;
 }
@@ -39,7 +38,7 @@ export default function Receipt({ sale, store, onClose }: ReceiptProps) {
         <!DOCTYPE html>
         <html>
           <head>
-            <title>Receipt #${sale.id}</title>
+            <title>Receipt #${sale.transaction_id}</title>
             <style>
               body { font-family: 'Courier New', monospace; max-width: 300px; margin: 20px auto; }
               .receipt { padding: 20px; }
@@ -57,13 +56,13 @@ export default function Receipt({ sale, store, onClose }: ReceiptProps) {
           <body>
             <div class="receipt">
               <div class="header">
-                <div class="store-name">${store.store_name}</div>
+                <div class="store-name">${store.business_name}</div>
                 ${store.address ? `<div>${store.address}</div>` : ''}
                 ${store.phone ? `<div>${store.phone}</div>` : ''}
               </div>
               
               <div>
-                <div><strong>Receipt #${sale.id}</strong></div>
+                <div><strong>Receipt #${sale.transaction_id}</strong></div>
                 <div>Date: ${formatDate(sale.created_at, 'long')}</div>
                 <div>Cashier: ${sale.cashier_name || 'N/A'}</div>
               </div>
@@ -84,10 +83,6 @@ export default function Receipt({ sale, store, onClose }: ReceiptProps) {
                 <div class="item">
                   <span>TOTAL</span>
                   <span>${formatCurrency(sale.total_amount)}</span>
-                </div>
-                <div class="item">
-                  <span>Payment Method</span>
-                  <span style="text-transform: uppercase;">${sale.payment_method}</span>
                 </div>
               </div>
 
@@ -128,7 +123,7 @@ export default function Receipt({ sale, store, onClose }: ReceiptProps) {
         <div className="p-6 font-mono text-sm">
           {/* Store Info */}
           <div className="text-center mb-6 pb-4 border-b-2 border-dashed border-gray-300">
-            <h3 className="text-xl font-bold mb-2">{store.store_name}</h3>
+            <h3 className="text-xl font-bold mb-2">{store.business_name}</h3>
             {store.address && <p className="text-gray-600">{store.address}</p>}
             {store.phone && <p className="text-gray-600">{store.phone}</p>}
           </div>
@@ -137,7 +132,7 @@ export default function Receipt({ sale, store, onClose }: ReceiptProps) {
           <div className="mb-4 space-y-1">
             <div className="flex justify-between">
               <span className="font-semibold">Receipt #</span>
-              <span>{sale.id}</span>
+              <span>{sale.transaction_id}</span>
             </div>
             <div className="flex justify-between">
               <span className="font-semibold">Date</span>
@@ -179,10 +174,6 @@ export default function Receipt({ sale, store, onClose }: ReceiptProps) {
             <div className="flex justify-between text-lg font-bold">
               <span>TOTAL</span>
               <span>{formatCurrency(sale.total_amount)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Payment Method</span>
-              <span className="uppercase font-semibold">{sale.payment_method}</span>
             </div>
           </div>
 

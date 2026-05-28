@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Search, Edit2, Trash2 } from 'lucide-react';
+import { Plus, Edit2, Trash2 } from 'lucide-react';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Loading from '@/components/ui/Loading';
@@ -9,6 +9,7 @@ import Empty from '@/components/ui/Empty';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
+import PageHeader from '@/components/ui/PageHeader';
 import api from '@/lib/api';
 import { Product } from '@/types';
 import toast from 'react-hot-toast';
@@ -20,30 +21,19 @@ export default function ProductsPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
-    name: '',
-    sku: '',
-    category: '',
-    price: '',
-    cost: '',
-    description: '',
+    name: '', sku: '', category: '', price: '', cost: '', current_stock: '', reorder_level: '',
   });
 
-  useEffect(() => {
-    fetchProducts();
-  }, []);
+  useEffect(() => { fetchProducts(); }, []);
 
   const fetchProducts = async () => {
     try {
       const response = await api.get('/products');
       setProducts(response.data.products || []);
-      setError(null);
     } catch (error: any) {
-      const errorMessage = error.message || 'Failed to load products';
-      setError(errorMessage);
+      toast.error(error.message || 'Failed to load products');
       setProducts([]);
-      toast.error(errorMessage, { duration: 5000 });
     } finally {
       setIsLoading(false);
     }
@@ -51,66 +41,60 @@ export default function ProductsPage() {
 
   const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.sku || !formData.price) {
-      toast.error('Please fill in all required fields');
+    if (!formData.name || !formData.category || !formData.price) {
+      toast.error('Name, category, and price are required');
       return;
     }
-
     try {
       await api.post('/products', {
         name: formData.name,
-        sku: formData.sku,
+        sku: formData.sku || null,
         category: formData.category,
         price: parseFloat(formData.price),
-        cost: parseFloat(formData.cost) || 0,
-        description: formData.description,
+        cost: formData.cost ? parseFloat(formData.cost) : null,
+        current_stock: formData.current_stock ? parseInt(formData.current_stock, 10) : 0,
+        reorder_level: formData.reorder_level ? parseInt(formData.reorder_level, 10) : 10,
       });
-
-      toast.success('Product created successfully');
+      toast.success('Product created');
       setIsCreateModalOpen(false);
       resetForm();
       fetchProducts();
     } catch (error: any) {
-      const errorMessage = error.response?.data?.message || 'Failed to create product';
-      toast.error(errorMessage);
+      toast.error(error.response?.data?.message || 'Failed to create product');
     }
   };
 
   const handleUpdateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedProduct) return;
-
     try {
-      await api.put(`/products/${selectedProduct.id}`, {
+      await api.put(`/products/${selectedProduct.product_id}`, {
         name: formData.name,
-        sku: formData.sku,
+        sku: formData.sku || null,
         category: formData.category,
         price: parseFloat(formData.price),
-        cost: parseFloat(formData.cost) || 0,
-        description: formData.description,
+        cost: formData.cost ? parseFloat(formData.cost) : null,
+        current_stock: formData.current_stock ? parseInt(formData.current_stock, 10) : undefined,
+        reorder_level: formData.reorder_level ? parseInt(formData.reorder_level, 10) : undefined,
       });
-
-      toast.success('Product updated successfully');
+      toast.success('Product updated');
       setIsEditModalOpen(false);
       setSelectedProduct(null);
       resetForm();
       fetchProducts();
     } catch (error: any) {
-      const errorMessage = error.response?.data?.message || 'Failed to update product';
-      toast.error(errorMessage);
+      toast.error(error.response?.data?.message || 'Failed to update product');
     }
   };
 
-  const handleDeleteProduct = async (productId: string) => {
-    if (!confirm('Are you sure you want to delete this product?')) return;
-
+  const handleDeleteProduct = async (productId: number) => {
+    if (!confirm('Deactivate this product? Past transactions stay intact.')) return;
     try {
       await api.delete(`/products/${productId}`);
-      toast.success('Product deleted successfully');
+      toast.success('Product deactivated');
       fetchProducts();
     } catch (error: any) {
-      const errorMessage = error.response?.data?.message || 'Failed to delete product';
-      toast.error(errorMessage);
+      toast.error(error.response?.data?.message || 'Failed to delete product');
     }
   };
 
@@ -122,269 +106,163 @@ export default function ProductsPage() {
       category: product.category || '',
       price: product.price.toString(),
       cost: product.cost?.toString() || '',
-      description: product.description || '',
+      current_stock: product.current_stock.toString(),
+      reorder_level: product.reorder_level.toString(),
     });
     setIsEditModalOpen(true);
   };
 
-  const resetForm = () => {
-    setFormData({
-      name: '',
-      sku: '',
-      category: '',
-      price: '',
-      cost: '',
-      description: '',
-    });
-  };
+  const resetForm = () =>
+    setFormData({ name: '', sku: '', category: '', price: '', cost: '', current_stock: '', reorder_level: '' });
 
-  const closeCreateModal = () => {
-    setIsCreateModalOpen(false);
-    resetForm();
-  };
+  const closeCreateModal = () => { setIsCreateModalOpen(false); resetForm(); };
+  const closeEditModal = () => { setIsEditModalOpen(false); setSelectedProduct(null); resetForm(); };
 
-  const closeEditModal = () => {
-    setIsEditModalOpen(false);
-    setSelectedProduct(null);
-    resetForm();
-  };
+  if (isLoading) return <Loading text="Loading products..." />;
 
-  if (isLoading) {
-    return <Loading text="Loading products..." />;
-  }
-
-  const filteredProducts = products.filter((product) =>
-    product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    product.sku?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    product.category?.toLowerCase().includes(searchQuery.toLowerCase())
+  const filtered = products.filter(
+    (p) =>
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.sku?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.category?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-blue-900 bg-clip-text text-transparent">
-            Products
-          </h1>
-          <p className="text-gray-500 mt-2">Manage your product catalog</p>
-        </div>
-        <Button size="lg" onClick={() => setIsCreateModalOpen(true)}>
-          <Plus className="w-5 h-5 mr-2" />
-          Add Product
-        </Button>
-      </div>
+    <>
+      <PageHeader
+        title="Products"
+        description="Your catalog. Stock and reorder levels live on the product itself."
+        action={
+          <Button size="md" onClick={() => setIsCreateModalOpen(true)}>
+            <Plus className="h-4 w-4" />
+            Add product
+          </Button>
+        }
+      />
 
-      {error && (
-        <Card className="bg-red-50 border border-red-200">
-          <p className="text-red-800">{error}</p>
-        </Card>
-      )}
-
-      {/* Search */}
-      <Card>
+      <Card className="p-4">
         <Input
-          placeholder="Search by product name, SKU, or category..."
+          placeholder="Search by name, SKU, or category"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
       </Card>
 
-      {/* Products Table */}
-      {filteredProducts.length === 0 ? (
-        <Empty
-          title="No products found"
-          description={searchQuery ? 'Try adjusting your search criteria' : 'No products in your catalog yet'}
-        />
+      {filtered.length === 0 ? (
+        <div className="mt-4">
+          <Empty
+            title="No products found"
+            description={searchQuery ? 'Try a different search' : 'Add your first product to get started'}
+          />
+        </div>
       ) : (
-        <Card>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-200 bg-gray-50">
-                  <th className="text-left py-4 px-6 font-semibold text-gray-700 text-sm">Product Name</th>
-                  <th className="text-left py-4 px-6 font-semibold text-gray-700 text-sm">SKU</th>
-                  <th className="text-left py-4 px-6 font-semibold text-gray-700 text-sm">Category</th>
-                  <th className="text-right py-4 px-6 font-semibold text-gray-700 text-sm">Price</th>
-                  <th className="text-right py-4 px-6 font-semibold text-gray-700 text-sm">Cost</th>
-                  <th className="text-center py-4 px-6 font-semibold text-gray-700 text-sm">Actions</th>
+        <div className="mt-4 overflow-hidden rounded-lg border border-gray-200 bg-white">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wider text-gray-500">
+                <th className="text-left py-3 px-4 font-semibold">Product</th>
+                <th className="text-left py-3 px-4 font-semibold">SKU</th>
+                <th className="text-left py-3 px-4 font-semibold">Category</th>
+                <th className="text-right py-3 px-4 font-semibold">Price</th>
+                <th className="text-center py-3 px-4 font-semibold">Stock</th>
+                <th className="text-center py-3 px-4 font-semibold">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filtered.map((product) => (
+                <tr key={product.product_id} className="hover:bg-gray-50/60">
+                  <td className="py-3 px-4 text-sm font-medium text-gray-900">{product.name}</td>
+                  <td className="py-3 px-4 text-sm text-gray-600 font-mono">{product.sku || '—'}</td>
+                  <td className="py-3 px-4 text-sm">
+                    {product.category ? <Badge variant="gray">{product.category}</Badge> : <span className="text-gray-400">—</span>}
+                  </td>
+                  <td className="py-3 px-4 text-right text-sm font-medium text-gray-900">
+                    ${Number(product.price).toFixed(2)}
+                  </td>
+                  <td className="py-3 px-4 text-center text-sm">
+                    <span
+                      className={
+                        product.current_stock === 0
+                          ? 'font-semibold text-red-600'
+                          : product.low_stock
+                          ? 'font-semibold text-amber-600'
+                          : 'font-medium text-gray-900'
+                      }
+                    >
+                      {product.current_stock}
+                    </span>
+                    {product.current_stock === 0 ? (
+                      <Badge variant="danger" className="ml-2">Out</Badge>
+                    ) : product.low_stock ? (
+                      <Badge variant="warning" className="ml-2">Low</Badge>
+                    ) : null}
+                  </td>
+                  <td className="py-3 px-4 text-center">
+                    <div className="flex items-center justify-center gap-1">
+                      <button
+                        onClick={() => openEditModal(product)}
+                        className="rounded-md p-1.5 text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                        title="Edit"
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteProduct(product.product_id)}
+                        className="rounded-md p-1.5 text-gray-600 hover:bg-red-50 hover:text-red-700"
+                        title="Deactivate"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {filteredProducts.map((product) => (
-                  <tr key={product.id} className="hover:bg-blue-50 transition-colors duration-150">
-                    <td className="py-4 px-6 font-semibold text-gray-900">{product.name}</td>
-                    <td className="py-4 px-6 text-gray-600 text-sm font-mono">{product.sku || '-'}</td>
-                    <td className="py-4 px-6 text-gray-600 text-sm">
-                      {product.category ? <Badge variant="info">{product.category}</Badge> : '-'}
-                    </td>
-                    <td className="py-4 px-6 text-right font-semibold text-gray-900">
-                      ${product.price.toFixed(2)}
-                    </td>
-                    <td className="py-4 px-6 text-right text-gray-600">
-                      ${(product.cost || 0).toFixed(2)}
-                    </td>
-                    <td className="py-4 px-6 text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <button
-                          onClick={() => openEditModal(product)}
-                          className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium text-sm transition-colors p-2 hover:bg-blue-100 rounded-lg"
-                          title="Edit product"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteProduct(product.id.toString())}
-                          className="inline-flex items-center gap-2 text-red-600 hover:text-red-800 font-medium text-sm transition-colors p-2 hover:bg-red-100 rounded-lg"
-                          title="Delete product"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
-      {/* Create Product Modal */}
-      <Modal
-        isOpen={isCreateModalOpen}
-        onClose={closeCreateModal}
-        title="Add New Product"
-      >
+      <Modal isOpen={isCreateModalOpen} onClose={closeCreateModal} title="Add product">
         <form onSubmit={handleCreateProduct} className="space-y-4">
-          <Input
-            label="Product Name *"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            placeholder="Enter product name"
-            required
-          />
-
-          <Input
-            label="SKU *"
-            value={formData.sku}
-            onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-            placeholder="Enter SKU"
-            required
-          />
-
-          <Input
-            label="Category"
-            value={formData.category}
-            onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-            placeholder="Enter category"
-          />
-
-          <Input
-            label="Price *"
-            type="number"
-            step="0.01"
-            value={formData.price}
-            onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-            placeholder="Enter price"
-            required
-          />
-
-          <Input
-            label="Cost"
-            type="number"
-            step="0.01"
-            value={formData.cost}
-            onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
-            placeholder="Enter cost"
-          />
-
-          <Input
-            label="Description"
-            value={formData.description}
-            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-            placeholder="Enter product description"
-          />
-
+          <Input label="Name *" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required />
+          <Input label="Category *" value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} required />
+          <Input label="SKU" value={formData.sku} onChange={(e) => setFormData({ ...formData, sku: e.target.value })} />
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Price *" type="number" step="0.01" value={formData.price} onChange={(e) => setFormData({ ...formData, price: e.target.value })} required />
+            <Input label="Cost" type="number" step="0.01" value={formData.cost} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Initial stock" type="number" value={formData.current_stock} onChange={(e) => setFormData({ ...formData, current_stock: e.target.value })} placeholder="0" />
+            <Input label="Reorder level" type="number" value={formData.reorder_level} onChange={(e) => setFormData({ ...formData, reorder_level: e.target.value })} placeholder="10" />
+          </div>
           <div className="flex gap-3 justify-end pt-4 border-t border-gray-200">
-            <Button variant="outline" onClick={closeCreateModal}>
-              Cancel
-            </Button>
-            <Button type="submit">
-              Create Product
-            </Button>
+            <Button type="button" variant="secondary" onClick={closeCreateModal}>Cancel</Button>
+            <Button type="submit">Create product</Button>
           </div>
         </form>
       </Modal>
 
-      {/* Edit Product Modal */}
       {selectedProduct && (
-        <Modal
-          isOpen={isEditModalOpen}
-          onClose={closeEditModal}
-          title="Edit Product"
-        >
+        <Modal isOpen={isEditModalOpen} onClose={closeEditModal} title="Edit product">
           <form onSubmit={handleUpdateProduct} className="space-y-4">
-            <Input
-              label="Product Name *"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              placeholder="Enter product name"
-              required
-            />
-
-            <Input
-              label="SKU *"
-              value={formData.sku}
-              onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-              placeholder="Enter SKU"
-              required
-            />
-
-            <Input
-              label="Category"
-              value={formData.category}
-              onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-              placeholder="Enter category"
-            />
-
-            <Input
-              label="Price *"
-              type="number"
-              step="0.01"
-              value={formData.price}
-              onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-              placeholder="Enter price"
-              required
-            />
-
-            <Input
-              label="Cost"
-              type="number"
-              step="0.01"
-              value={formData.cost}
-              onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
-              placeholder="Enter cost"
-            />
-
-            <Input
-              label="Description"
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              placeholder="Enter product description"
-            />
-
+            <Input label="Name *" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required />
+            <Input label="Category *" value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} required />
+            <Input label="SKU" value={formData.sku} onChange={(e) => setFormData({ ...formData, sku: e.target.value })} />
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Price *" type="number" step="0.01" value={formData.price} onChange={(e) => setFormData({ ...formData, price: e.target.value })} required />
+              <Input label="Cost" type="number" step="0.01" value={formData.cost} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Current stock" type="number" value={formData.current_stock} onChange={(e) => setFormData({ ...formData, current_stock: e.target.value })} />
+              <Input label="Reorder level" type="number" value={formData.reorder_level} onChange={(e) => setFormData({ ...formData, reorder_level: e.target.value })} />
+            </div>
             <div className="flex gap-3 justify-end pt-4 border-t border-gray-200">
-              <Button variant="outline" onClick={closeEditModal}>
-                Cancel
-              </Button>
-              <Button type="submit">
-                Update Product
-              </Button>
+              <Button type="button" variant="secondary" onClick={closeEditModal}>Cancel</Button>
+              <Button type="submit">Update product</Button>
             </div>
           </form>
         </Modal>
       )}
-    </div>
+    </>
   );
 }

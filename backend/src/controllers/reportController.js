@@ -1,383 +1,267 @@
-import SaleModel from '../models/Sale.js';
+import TransactionModel from '../models/Transaction.js';
 import ProductModel from '../models/Product.js';
-import InventoryModel from '../models/Inventory.js';
 import { query } from '../config/database.js';
 import { BadRequestError } from '../utils/errors.js';
-import logger from '../utils/logger.js';
 
+// All queries below filter by tenant_id and read from the new
+// transactions/transaction_items/products schema. Payment-method and
+// status reports are gone — append-only transactions have no status
+// and the schema no longer tracks payment method (deferred per ADR-0001).
 class ReportController {
-  // Get daily sales report
   async getDailySales(req, res, next) {
     try {
-      const storeId = req.storeId;
-      const { date } = req.query;
+      const target = req.query.date ? new Date(req.query.date) : new Date();
+      const startOfDay = new Date(target); startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(target); endOfDay.setHours(23, 59, 59, 999);
 
-      let targetDate;
-      if (date) {
-        targetDate = new Date(date);
-      } else {
-        targetDate = new Date();
-      }
-
-      // Set to start of day
-      const startOfDay = new Date(targetDate);
-      startOfDay.setHours(0, 0, 0, 0);
-
-      // Set to end of day
-      const endOfDay = new Date(targetDate);
-      endOfDay.setHours(23, 59, 59, 999);
-
-      // Get sales summary
-      const summary = await SaleModel.getSummary(storeId, startOfDay, endOfDay);
-
-      // Get all sales for the day
-      const sales = await SaleModel.findByStore(storeId, {
+      const summary = await TransactionModel.getSummary(req.tenantId, startOfDay, endOfDay);
+      const recent = await TransactionModel.findByTenant(req.tenantId, {
         start_date: startOfDay,
         end_date: endOfDay,
-        status: 'completed'
+        limit: 10,
       });
-
-      // Get sales by payment method
-      const paymentMethodResult = await query(
-        `SELECT payment_method, 
-                COUNT(*) as count,
-                SUM(total_amount) as total
-         FROM sales
-         WHERE store_id = $1 
-           AND status = 'completed'
-           AND created_at >= $2 
-           AND created_at <= $3
-         GROUP BY payment_method
-         ORDER BY total DESC`,
-        [storeId, startOfDay, endOfDay]
-      );
-
-      // Get hourly sales breakdown
-      const hourlySalesResult = await query(
-        `SELECT EXTRACT(HOUR FROM created_at) as hour,
-                COUNT(*) as transaction_count,
-                SUM(total_amount) as total_sales
-         FROM sales
-         WHERE store_id = $1 
-           AND status = 'completed'
-           AND created_at >= $2 
-           AND created_at <= $3
-         GROUP BY EXTRACT(HOUR FROM created_at)
-         ORDER BY hour`,
-        [storeId, startOfDay, endOfDay]
+      const hourly = await query(
+        `SELECT EXTRACT(HOUR FROM created_at)::int AS hour,
+                COUNT(*)::int AS transaction_count,
+                COALESCE(SUM(total_amount), 0) AS total_sales
+           FROM transactions
+          WHERE tenant_id = $1
+            AND created_at >= $2 AND created_at <= $3
+          GROUP BY EXTRACT(HOUR FROM created_at)
+          ORDER BY hour`,
+        [req.tenantId, startOfDay, endOfDay]
       );
 
       res.json({
-        date: targetDate.toISOString().split('T')[0],
-        summary: {
-          total_sales: parseInt(summary.total_sales) || 0,
-          total_revenue: parseFloat(summary.total_revenue) || 0,
-          average_sale: parseFloat(summary.average_sale) || 0,
-          active_cashiers: parseInt(summary.active_cashiers) || 0
-        },
-        payment_methods: paymentMethodResult.rows,
-        hourly_breakdown: hourlySalesResult.rows,
-        recent_sales: sales.slice(0, 10) // Last 10 sales
+        date: target.toISOString().split('T')[0],
+        summary,
+        hourly_breakdown: hourly.rows,
+        recent_transactions: recent,
       });
     } catch (error) {
       next(error);
     }
   }
 
-  // Get product performance report
   async getProductPerformance(req, res, next) {
     try {
-      const storeId = req.storeId;
       const { start_date, end_date, limit = 20 } = req.query;
-
       if (!start_date || !end_date) {
         throw new BadRequestError('start_date and end_date are required');
       }
 
-      // Get best selling products
-      const topProductsResult = await query(
-        `SELECT p.id, p.name, p.category, p.price,
-                COUNT(si.id) as times_sold,
-                SUM(si.quantity) as total_quantity,
-                SUM(si.subtotal) as total_revenue,
-                AVG(si.unit_price) as average_price
-         FROM products p
-         JOIN sale_items si ON p.id = si.product_id
-         JOIN sales s ON si.sale_id = s.id
-         WHERE s.store_id = $1
-           AND s.status = 'completed'
-           AND s.created_at >= $2
-           AND s.created_at <= $3
-         GROUP BY p.id, p.name, p.category, p.price
-         ORDER BY total_revenue DESC
-         LIMIT $4`,
-        [storeId, start_date, end_date, limit]
+      const top = await query(
+        `SELECT p.product_id, p.name, p.category, p.price,
+                COUNT(ti.transaction_item_id)::int AS times_sold,
+                SUM(ti.quantity)::int AS total_quantity,
+                COALESCE(SUM(ti.quantity * ti.unit_price), 0) AS total_revenue,
+                COALESCE(AVG(ti.unit_price), 0) AS average_price
+           FROM products p
+           JOIN transaction_items ti ON p.product_id = ti.product_id
+           JOIN transactions t ON ti.transaction_id = t.transaction_id
+          WHERE t.tenant_id = $1
+            AND t.created_at >= $2 AND t.created_at <= $3
+          GROUP BY p.product_id, p.name, p.category, p.price
+          ORDER BY total_revenue DESC
+          LIMIT $4`,
+        [req.tenantId, start_date, end_date, limit]
       );
 
-      // Get category performance
-      const categoryResult = await query(
+      const categories = await query(
         `SELECT p.category,
-                COUNT(DISTINCT p.id) as product_count,
-                SUM(si.quantity) as total_quantity,
-                SUM(si.subtotal) as total_revenue
-         FROM products p
-         JOIN sale_items si ON p.id = si.product_id
-         JOIN sales s ON si.sale_id = s.id
-         WHERE s.store_id = $1
-           AND s.status = 'completed'
-           AND s.created_at >= $2
-           AND s.created_at <= $3
-         GROUP BY p.category
-         ORDER BY total_revenue DESC`,
-        [storeId, start_date, end_date]
+                COUNT(DISTINCT p.product_id)::int AS product_count,
+                SUM(ti.quantity)::int AS total_quantity,
+                COALESCE(SUM(ti.quantity * ti.unit_price), 0) AS total_revenue
+           FROM products p
+           JOIN transaction_items ti ON p.product_id = ti.product_id
+           JOIN transactions t ON ti.transaction_id = t.transaction_id
+          WHERE t.tenant_id = $1
+            AND t.created_at >= $2 AND t.created_at <= $3
+          GROUP BY p.category
+          ORDER BY total_revenue DESC`,
+        [req.tenantId, start_date, end_date]
       );
 
-      // Get slow moving products (low sales)
-      const slowMovingResult = await query(
-        `SELECT p.id, p.name, p.category, p.price,
-                COALESCE(SUM(si.quantity), 0) as total_sold,
-                i.quantity as current_stock
-         FROM products p
-         LEFT JOIN sale_items si ON p.id = si.product_id
-         LEFT JOIN sales s ON si.sale_id = s.id 
-           AND s.status = 'completed'
-           AND s.created_at >= $2
-           AND s.created_at <= $3
-         LEFT JOIN inventory i ON p.id = i.product_id AND p.store_id = i.store_id
-         WHERE p.store_id = $1
-           AND p.is_active = true
-         GROUP BY p.id, p.name, p.category, p.price, i.quantity
-         ORDER BY total_sold ASC
-         LIMIT 10`,
-        [storeId, start_date, end_date]
+      const slowMoving = await query(
+        `SELECT p.product_id, p.name, p.category, p.price, p.current_stock,
+                COALESCE(SUM(ti.quantity), 0)::int AS total_sold
+           FROM products p
+           LEFT JOIN transaction_items ti ON p.product_id = ti.product_id
+           LEFT JOIN transactions t ON ti.transaction_id = t.transaction_id
+                 AND t.created_at >= $2 AND t.created_at <= $3
+          WHERE p.tenant_id = $1 AND p.is_active = true
+          GROUP BY p.product_id, p.name, p.category, p.price, p.current_stock
+          ORDER BY total_sold ASC
+          LIMIT 10`,
+        [req.tenantId, start_date, end_date]
       );
 
       res.json({
         period: { start_date, end_date },
-        top_products: topProductsResult.rows,
-        category_performance: categoryResult.rows,
-        slow_moving_products: slowMovingResult.rows
+        top_products: top.rows,
+        category_performance: categories.rows,
+        slow_moving_products: slowMoving.rows,
       });
     } catch (error) {
       next(error);
     }
   }
 
-  // Get inventory report
   async getInventoryReport(req, res, next) {
     try {
-      const storeId = req.storeId;
-
-      // Get inventory summary
-      const summaryResult = await query(
-        `SELECT 
-           COUNT(DISTINCT i.product_id) as total_products,
-           SUM(i.quantity) as total_units,
-           SUM(i.quantity * p.cost) as total_value,
-           SUM(i.quantity * p.price) as potential_revenue,
-           COUNT(CASE WHEN i.quantity <= i.reorder_level THEN 1 END) as low_stock_count,
-           COUNT(CASE WHEN i.quantity = 0 THEN 1 END) as out_of_stock_count
-         FROM inventory i
-         JOIN products p ON i.product_id = p.id
-         WHERE i.store_id = $1`,
-        [storeId]
+      const summary = await query(
+        `SELECT
+           COUNT(*)::int AS total_products,
+           COALESCE(SUM(current_stock), 0)::int AS total_units,
+           COALESCE(SUM(current_stock * cost), 0) AS total_value,
+           COALESCE(SUM(current_stock * price), 0) AS potential_revenue,
+           COUNT(*) FILTER (WHERE current_stock <= reorder_level)::int AS low_stock_count,
+           COUNT(*) FILTER (WHERE current_stock = 0)::int AS out_of_stock_count
+         FROM products
+         WHERE tenant_id = $1 AND is_active = true`,
+        [req.tenantId]
       );
 
-      // Get low stock items
-      const lowStock = await InventoryModel.getLowStock(storeId);
+      const lowStock = await ProductModel.getLowStock(req.tenantId);
 
-      // Get out of stock items
-      const outOfStockResult = await query(
-        `SELECT p.id, p.name, p.category, p.sku, 
-                i.quantity, i.reorder_level
-         FROM inventory i
-         JOIN products p ON i.product_id = p.id
-         WHERE i.store_id = $1 AND i.quantity = 0
-         ORDER BY p.name`,
-        [storeId]
+      const outOfStock = await query(
+        `SELECT product_id, name, category, sku, current_stock, reorder_level
+           FROM products
+          WHERE tenant_id = $1 AND is_active = true AND current_stock = 0
+          ORDER BY name`,
+        [req.tenantId]
       );
 
-      // Get inventory by category
-      const categoryResult = await query(
-        `SELECT p.category,
-                COUNT(DISTINCT p.id) as product_count,
-                SUM(i.quantity) as total_units,
-                SUM(i.quantity * p.cost) as total_value
-         FROM inventory i
-         JOIN products p ON i.product_id = p.id
-         WHERE i.store_id = $1
-         GROUP BY p.category
-         ORDER BY total_value DESC`,
-        [storeId]
+      const byCategory = await query(
+        `SELECT category,
+                COUNT(*)::int AS product_count,
+                COALESCE(SUM(current_stock), 0)::int AS total_units,
+                COALESCE(SUM(current_stock * cost), 0) AS total_value
+           FROM products
+          WHERE tenant_id = $1 AND is_active = true
+          GROUP BY category
+          ORDER BY total_value DESC`,
+        [req.tenantId]
       );
 
-      // Get recently updated inventory
-      const recentUpdatesResult = await query(
-        `SELECT p.id, p.name, p.category,
-                i.quantity, i.last_updated
-         FROM inventory i
-         JOIN products p ON i.product_id = p.id
-         WHERE i.store_id = $1
-         ORDER BY i.last_updated DESC
-         LIMIT 10`,
-        [storeId]
+      const recent = await query(
+        `SELECT product_id, name, category, current_stock, updated_at
+           FROM products
+          WHERE tenant_id = $1
+          ORDER BY updated_at DESC
+          LIMIT 10`,
+        [req.tenantId]
       );
 
       res.json({
-        summary: summaryResult.rows[0],
+        summary: summary.rows[0],
         low_stock_items: lowStock,
-        out_of_stock_items: outOfStockResult.rows,
-        by_category: categoryResult.rows,
-        recent_updates: recentUpdatesResult.rows
+        out_of_stock_items: outOfStock.rows,
+        by_category: byCategory.rows,
+        recent_updates: recent.rows,
       });
     } catch (error) {
       next(error);
     }
   }
 
-  // Get cashier performance report
   async getCashierPerformance(req, res, next) {
     try {
-      const storeId = req.storeId;
       const { start_date, end_date } = req.query;
-
       if (!start_date || !end_date) {
         throw new BadRequestError('start_date and end_date are required');
       }
 
-      const performanceResult = await query(
-        `SELECT u.id, u.full_name, u.email,
-                COUNT(s.id) as total_transactions,
-                SUM(s.total_amount) as total_sales,
-                AVG(s.total_amount) as average_transaction,
-                MAX(s.total_amount) as highest_sale,
-                MIN(s.created_at) as first_sale,
-                MAX(s.created_at) as last_sale
-         FROM users u
-         LEFT JOIN sales s ON u.id = s.cashier_id 
-           AND s.store_id = $1
-           AND s.status = 'completed'
-           AND s.created_at >= $2
-           AND s.created_at <= $3
-         WHERE u.store_id = $1
-           AND u.role = 'cashier'
-           AND u.is_active = true
-         GROUP BY u.id, u.full_name, u.email
-         ORDER BY total_sales DESC`,
-        [storeId, start_date, end_date]
+      const result = await query(
+        `SELECT u.user_id, u.name, u.email,
+                COUNT(t.transaction_id)::int AS total_transactions,
+                COALESCE(SUM(t.total_amount), 0) AS total_sales,
+                COALESCE(AVG(t.total_amount), 0) AS average_transaction,
+                COALESCE(MAX(t.total_amount), 0) AS highest_sale,
+                MIN(t.created_at) AS first_sale,
+                MAX(t.created_at) AS last_sale
+           FROM users u
+           LEFT JOIN transactions t ON u.user_id = t.user_id
+                 AND t.tenant_id = $1
+                 AND t.created_at >= $2 AND t.created_at <= $3
+          WHERE u.tenant_id = $1
+            AND u.role = 'Cashier'
+            AND u.is_active = true
+          GROUP BY u.user_id, u.name, u.email
+          ORDER BY total_sales DESC`,
+        [req.tenantId, start_date, end_date]
       );
 
       res.json({
         period: { start_date, end_date },
-        cashier_performance: performanceResult.rows
+        cashier_performance: result.rows,
       });
     } catch (error) {
       next(error);
     }
   }
 
-  // Get sales trends (weekly/monthly)
   async getSalesTrends(req, res, next) {
     try {
-      const storeId = req.storeId;
-      const { period = 'weekly' } = req.query; // 'weekly' or 'monthly'
+      const period = req.query.period === 'monthly' ? 'monthly' : 'weekly';
+      const groupBy = period === 'monthly'
+        ? `TO_CHAR(created_at, 'YYYY-MM')`
+        : `TO_CHAR(created_at, 'IYYY-IW')`;
 
-      let dateFormat;
-      let groupBy;
-
-      if (period === 'monthly') {
-        dateFormat = 'YYYY-MM';
-        groupBy = `TO_CHAR(created_at, 'YYYY-MM')`;
-      } else {
-        dateFormat = 'YYYY-IW'; // ISO week
-        groupBy = `TO_CHAR(created_at, 'YYYY-IW')`;
-      }
-
-      const trendsResult = await query(
-        `SELECT ${groupBy} as period,
-                COUNT(*) as transaction_count,
-                SUM(total_amount) as total_sales,
-                AVG(total_amount) as average_sale,
-                COUNT(DISTINCT cashier_id) as active_cashiers
-         FROM sales
-         WHERE store_id = $1
-           AND status = 'completed'
-           AND created_at >= NOW() - INTERVAL '6 months'
-         GROUP BY ${groupBy}
-         ORDER BY period DESC
-         LIMIT 20`,
-        [storeId]
+      const result = await query(
+        `SELECT ${groupBy} AS period,
+                COUNT(*)::int AS transaction_count,
+                COALESCE(SUM(total_amount), 0) AS total_sales,
+                COALESCE(AVG(total_amount), 0) AS average_sale,
+                COUNT(DISTINCT user_id)::int AS active_cashiers
+           FROM transactions
+          WHERE tenant_id = $1
+            AND created_at >= NOW() - INTERVAL '6 months'
+          GROUP BY ${groupBy}
+          ORDER BY period DESC
+          LIMIT 20`,
+        [req.tenantId]
       );
 
-      res.json({
-        period_type: period,
-        trends: trendsResult.rows
-      });
+      res.json({ period_type: period, trends: result.rows });
     } catch (error) {
       next(error);
     }
   }
 
-  // Get comprehensive dashboard stats
   async getDashboardStats(req, res, next) {
     try {
-      const storeId = req.storeId;
-
-      // Today's stats
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayEnd = new Date();
-      todayEnd.setHours(23, 59, 59, 999);
-
-      const todayStats = await SaleModel.getSummary(storeId, today, todayEnd);
-
-      // This month's stats
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
       const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
       const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
 
-      const monthStats = await SaleModel.getSummary(storeId, monthStart, monthEnd);
+      const todayStats = await TransactionModel.getSummary(req.tenantId, today, todayEnd);
+      const monthStats = await TransactionModel.getSummary(req.tenantId, monthStart, monthEnd);
+      const lowStock = await ProductModel.getLowStock(req.tenantId);
+      const recent = await TransactionModel.findByTenant(req.tenantId, { limit: 5 });
 
-      // Low stock count
-      const lowStock = await InventoryModel.getLowStock(storeId);
-
-      // Recent sales
-      const recentSales = await SaleModel.findByStore(storeId, {
-        limit: 5,
-        status: 'completed'
-      });
-
-      // Top products this month
-      const topProductsResult = await query(
-        `SELECT p.name, SUM(si.quantity) as total_sold, SUM(si.subtotal) as revenue
-         FROM products p
-         JOIN sale_items si ON p.id = si.product_id
-         JOIN sales s ON si.sale_id = s.id
-         WHERE s.store_id = $1
-           AND s.status = 'completed'
-           AND s.created_at >= $2
-           AND s.created_at <= $3
-         GROUP BY p.id, p.name
-         ORDER BY revenue DESC
-         LIMIT 5`,
-        [storeId, monthStart, monthEnd]
+      const topProducts = await query(
+        `SELECT p.name,
+                SUM(ti.quantity)::int AS total_sold,
+                COALESCE(SUM(ti.quantity * ti.unit_price), 0) AS revenue
+           FROM products p
+           JOIN transaction_items ti ON p.product_id = ti.product_id
+           JOIN transactions t ON ti.transaction_id = t.transaction_id
+          WHERE t.tenant_id = $1
+            AND t.created_at >= $2 AND t.created_at <= $3
+          GROUP BY p.product_id, p.name
+          ORDER BY revenue DESC
+          LIMIT 5`,
+        [req.tenantId, monthStart, monthEnd]
       );
 
       res.json({
-        today: {
-          sales: parseInt(todayStats.total_sales) || 0,
-          revenue: parseFloat(todayStats.total_revenue) || 0,
-          average_sale: parseFloat(todayStats.average_sale) || 0
-        },
-        this_month: {
-          sales: parseInt(monthStats.total_sales) || 0,
-          revenue: parseFloat(monthStats.total_revenue) || 0,
-          average_sale: parseFloat(monthStats.average_sale) || 0
-        },
-        alerts: {
-          low_stock_count: lowStock.length
-        },
-        recent_sales: recentSales,
-        top_products: topProductsResult.rows
+        today: todayStats,
+        this_month: monthStats,
+        alerts: { low_stock_count: lowStock.length },
+        recent_transactions: recent,
+        top_products: topProducts.rows,
       });
     } catch (error) {
       next(error);

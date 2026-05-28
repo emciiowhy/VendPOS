@@ -33,15 +33,15 @@ class AuthService {
   // Generate both tokens
   generateTokens(user) {
     const payload = {
-      id: user.id,
+      user_id: user.user_id,
       email: user.email,
       role: user.role,
-      store_id: user.store_id
+      tenant_id: user.tenant_id
     };
 
     return {
       accessToken: this.generateAccessToken(payload),
-      refreshToken: this.generateRefreshToken({ id: user.id })
+      refreshToken: this.generateRefreshToken({ user_id: user.user_id })
     };
   }
 

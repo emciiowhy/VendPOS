@@ -1,232 +1,162 @@
 import UserModel from '../models/User.js';
-import StoreModel from '../models/Store.js';
+import TenantModel from '../models/Tenant.js';
 import authService from '../services/authService.js';
-import { BadRequestError, UnauthorizedError, ConflictError } from '../utils/errors.js';
+import { BadRequestError, UnauthorizedError } from '../utils/errors.js';
 import { validatePassword } from '../utils/validation.js';
 import logger from '../utils/logger.js';
 
 class AuthController {
-  // Register new owner with store
+  // Register: create a Tenant + its first Owner in one DB transaction.
   async register(req, res, next) {
     try {
-      const { email, password, full_name, store_name } = req.body;
+      const { email, password, name, business_name } = req.body;
 
-      // Validate required fields
-      if (!email || !password || !full_name || !store_name) {
-        throw new BadRequestError('Email, password, full name, and store name are required');
+      if (!email || !password || !name || !business_name) {
+        throw new BadRequestError('email, password, name, and business_name are required');
       }
 
-      // Validate password strength
       const passwordValidation = validatePassword(password);
       if (!passwordValidation.isValid) {
         throw new BadRequestError(passwordValidation.errors.join(', '));
       }
 
-      // Check if email already exists
-      const existingUser = await UserModel.findByEmail(email);
-      if (existingUser) {
-        throw new ConflictError('Email already registered');
-      }
-
-      // Hash password
-      const password_hash = await authService.hashPassword(password);
-
-      // Create user first (without store_id)
-      const user = await UserModel.create({
-        email,
-        password_hash,
-        full_name,
-        role: 'owner',
-        store_id: null
+      const { tenant, user } = await TenantModel.registerWithOwner({
+        business_name,
+        owner_name: name,
+        owner_email: email,
+        owner_password: password,
       });
 
-      // Create store
-      const store = await StoreModel.create({
-        owner_id: user.id,
-        store_name
-      });
-
-      // Update user with store_id
-      await UserModel.update(user.id, { store_id: store.id });
-
-      // Generate tokens
       const tokens = authService.generateTokens({
-        id: user.id,
+        user_id: user.user_id,
         email: user.email,
         role: user.role,
-        store_id: store.id
+        tenant_id: tenant.tenant_id,
       });
 
-      logger.success(`New owner registered: ${email} with store: ${store_name}`);
+      logger.success(`New owner registered: ${email} (tenant ${tenant.tenant_id} "${business_name}")`);
 
       res.status(201).json({
         message: 'Registration successful',
         user: {
-          id: user.id,
+          user_id: user.user_id,
           email: user.email,
-          full_name: user.full_name,
+          name: user.name,
           role: user.role,
-          store_id: store.id
+          tenant_id: tenant.tenant_id,
         },
-        store: {
-          id: store.id,
-          store_name: store.store_name,
-          theme_color: store.theme_color
+        tenant: {
+          tenant_id: tenant.tenant_id,
+          business_name: tenant.business_name,
+          subscription_tier: tenant.subscription_tier,
+          theme_color: tenant.theme_color,
         },
-        ...tokens
+        ...tokens,
       });
     } catch (error) {
       next(error);
     }
   }
 
-  // Login
   async login(req, res, next) {
     try {
       const { email, password } = req.body;
-
-      // Validate required fields
       if (!email || !password) {
         throw new BadRequestError('Email and password are required');
       }
 
-      // Find user with password
       const user = await UserModel.findByEmail(email);
-      if (!user) {
-        throw new UnauthorizedError('Invalid email or password');
-      }
+      if (!user) throw new UnauthorizedError('Invalid email or password');
+      if (!user.is_active) throw new UnauthorizedError('Account is deactivated');
 
-      // Check if user is active
-      if (!user.is_active) {
-        throw new UnauthorizedError('Account is deactivated');
-      }
-
-      // Verify password
       const isPasswordValid = await authService.comparePassword(password, user.password_hash);
-      if (!isPasswordValid) {
-        throw new UnauthorizedError('Invalid email or password');
-      }
+      if (!isPasswordValid) throw new UnauthorizedError('Invalid email or password');
 
-      // Generate tokens
       const tokens = authService.generateTokens(user);
-
       logger.success(`User logged in: ${email} (${user.role})`);
 
       res.json({
         message: 'Login successful',
         user: {
-          id: user.id,
+          user_id: user.user_id,
           email: user.email,
-          full_name: user.full_name,
+          name: user.name,
           role: user.role,
-          store_id: user.store_id
+          tenant_id: user.tenant_id,
         },
-        ...tokens
+        ...tokens,
       });
     } catch (error) {
       next(error);
     }
   }
 
-  // Refresh token
   async refresh(req, res, next) {
     try {
       const { refreshToken } = req.body;
+      if (!refreshToken) throw new BadRequestError('Refresh token is required');
 
-      if (!refreshToken) {
-        throw new BadRequestError('Refresh token is required');
-      }
-
-      // Verify refresh token
       const decoded = authService.verifyRefreshToken(refreshToken);
-
-      // Get user
-      const user = await UserModel.findById(decoded.id);
-
-      // Generate new tokens
+      const user = await UserModel.findById(decoded.user_id);
       const tokens = authService.generateTokens(user);
 
-      logger.info(`Tokens refreshed for user: ${user.email}`);
-
-      res.json({
-        message: 'Token refreshed successfully',
-        ...tokens
-      });
+      res.json({ message: 'Token refreshed successfully', ...tokens });
     } catch (error) {
       next(error);
     }
   }
 
-  // Get current user
   async me(req, res, next) {
     try {
-      const user = await UserModel.findById(req.user.id);
-
-      // Get store info if user has a store
-      let store = null;
-      if (user.store_id) {
-        store = await StoreModel.findById(user.store_id);
-      }
+      const user = await UserModel.findById(req.user.user_id);
+      const tenant = await TenantModel.findById(user.tenant_id);
 
       res.json({
         user: {
-          id: user.id,
+          user_id: user.user_id,
           email: user.email,
-          full_name: user.full_name,
+          name: user.name,
           role: user.role,
-          store_id: user.store_id,
+          tenant_id: user.tenant_id,
           is_active: user.is_active,
-          created_at: user.created_at
+          created_at: user.created_at,
         },
-        store: store ? {
-          id: store.id,
-          store_name: store.store_name,
-          logo_url: store.logo_url,
-          theme_color: store.theme_color,
-          address: store.address,
-          phone: store.phone
-        } : null
+        tenant: {
+          tenant_id: tenant.tenant_id,
+          business_name: tenant.business_name,
+          subscription_tier: tenant.subscription_tier,
+          logo_url: tenant.logo_url,
+          theme_color: tenant.theme_color,
+          address: tenant.address,
+          phone: tenant.phone,
+        },
       });
     } catch (error) {
       next(error);
     }
   }
 
-  // Change password
   async changePassword(req, res, next) {
     try {
       const { currentPassword, newPassword } = req.body;
-
       if (!currentPassword || !newPassword) {
         throw new BadRequestError('Current password and new password are required');
       }
 
-      // Validate new password strength
       const passwordValidation = validatePassword(newPassword);
       if (!passwordValidation.isValid) {
         throw new BadRequestError(passwordValidation.errors.join(', '));
       }
 
-      // Get user with password
-      const user = await UserModel.findByIdWithPassword(req.user.id);
-
-      // Verify current password
+      const user = await UserModel.findByIdWithPassword(req.user.user_id);
       const isPasswordValid = await authService.comparePassword(currentPassword, user.password_hash);
-      if (!isPasswordValid) {
-        throw new UnauthorizedError('Current password is incorrect');
-      }
+      if (!isPasswordValid) throw new UnauthorizedError('Current password is incorrect');
 
-      // Hash new password
       const newPasswordHash = await authService.hashPassword(newPassword);
-
-      // Update password
-      await UserModel.updatePassword(user.id, newPasswordHash);
+      await UserModel.updatePassword(user.user_id, newPasswordHash);
 
       logger.success(`Password changed for user: ${user.email}`);
-
-      res.json({
-        message: 'Password changed successfully'
-      });
+      res.json({ message: 'Password changed successfully' });
     } catch (error) {
       next(error);
     }

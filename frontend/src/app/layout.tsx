@@ -6,8 +6,9 @@ import Toast from '@/components/ui/Toast';
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
 export const metadata: Metadata = {
-  title: 'POS System - Multi-tenant SaaS',
-  description: 'Cloud-based Point of Sale system for modern businesses',
+  title: 'VendPOS — Point of sale for modern merchants',
+  description:
+    'A merchant-side POS with race-safe stock decrement, tenant isolation, and append-only sales history.',
 };
 
 export default function RootLayout({

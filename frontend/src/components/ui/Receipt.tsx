@@ -112,6 +112,8 @@ export default function Receipt({ sale, store, onClose }: ReceiptProps) {
           {onClose && (
             <button
               onClick={onClose}
+              aria-label="Close receipt"
+              title="Close receipt"
               className="text-gray-400 hover:text-gray-600"
             >
               <X className="w-5 h-5" />

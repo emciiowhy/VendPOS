@@ -34,7 +34,7 @@ export default function Footer() {
           <div className="flex items-center gap-5">
             <Link href="/auth/login" className="hover:text-gray-900">Sign in</Link>
             <Link href="/auth/register" className="hover:text-gray-900">Sign up</Link>
-            <a href="https://github.com/emciiowhy/VendPOS" target="_blank" rel="noreferrer" className="hover:text-gray-900">GitHub</a>
+            <a href="https://github.com/emciiowhy/VendPOS" target="_blank" rel="noreferrer noopener" className="hover:text-gray-900">GitHub</a>
           </div>
         </div>
       </div>

@@ -242,7 +242,8 @@ export default function UsersPage() {
           )}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
-            <select
+            <1
+              aria-label="Role"
               value={formData.role}
               onChange={(e) => setFormData({ ...formData, role: e.target.value as Role })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
